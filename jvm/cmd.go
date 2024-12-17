@@ -1,6 +1,7 @@
 package jvm
 
 import (
+	"bytes"
 	"fmt"
 	"log/slog"
 	"os"
@@ -107,7 +108,12 @@ func readResponse(fd int, args []string, out chan []byte, logger *slog.Logger) i
 	}
 
 	buf = buf[:n]
-	result, _ := strconv.Atoi(string(buf[:n]))
+	nlPos := bytes.IndexByte(buf, '\n')
+	if nlPos < 0 {
+		nlPos = n
+	}
+
+	result, _ := strconv.Atoi(string(buf[:nlPos]))
 
 	if len(args) > 0 && args[0] == "load" {
 		total := n
@@ -133,12 +139,15 @@ func readResponse(fd int, args []string, out chan []byte, logger *slog.Logger) i
 
 	logger.Info("JVM response", "code", result)
 
+	if nlPos < n-1 {
+		out <- buf[nlPos+1:]
+	}
+
 	for {
 		n, err := syscall.Read(fd, buf)
 		if n == 0 || err != nil {
 			break
 		}
-		os.Stdout.Write(buf[:n])
 		out <- buf[:n]
 	}
 
@@ -179,7 +188,6 @@ func Jattach(pid int, argv []string, out chan []byte, logger *slog.Logger) int {
 
 	if util.GetProcessInfo(pid, &targetUID, &targetGID, &nspid) != nil {
 		logger.Error("process not found", "pid", pid)
-		close(out)
 		return 1
 	}
 
@@ -194,7 +202,6 @@ func Jattach(pid int, argv []string, out chan []byte, logger *slog.Logger) int {
 	if (myGID != targetGID && syscall.Setegid(int(targetGID)) != nil) ||
 		(myUID != targetUID && syscall.Seteuid(int(targetUID)) != nil) {
 		logger.Error("failed to change credentials to match the target process")
-		close(out)
 		return 1
 	}
 
@@ -209,6 +216,5 @@ func Jattach(pid int, argv []string, out chan []byte, logger *slog.Logger) int {
 	signal.Ignore(syscall.SIGPIPE)
 
 	res := jattachHotspot(pid, nspid, attachPid, argv, tmpPath, out, logger)
-	close(out)
 	return res
 }

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"sync"
 
 	"github.com/grafana/jvmtools/jvm"
 )
@@ -52,23 +53,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	status, err := jvm.EnableDynamicAgentLoading(pid)
+	// status, err := jvm.EnableDynamicAgentLoading(pid)
 
-	if err != nil {
-		logger.Error("encountered error while enabling dynamic loading", "error", err)
-	} else {
-		logger.Info("dynamic loading status", "result", status)
-	}
+	// if err != nil {
+	// 	logger.Error("encountered error while enabling dynamic loading", "error", err)
+	// } else {
+	// 	logger.Info("dynamic loading status", "result", status)
+	// }
 
 	out := make(chan []byte)
+	var wg sync.WaitGroup
 
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for data := range out {
 			os.Stdout.Write(data)
 		}
 	}()
 
 	exitCode := jvm.Jattach(pid, os.Args[2:], out, logger)
+	close(out)
+	wg.Wait()
 
 	os.Exit(exitCode)
 }
