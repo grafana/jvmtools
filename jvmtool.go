@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strconv"
@@ -29,6 +31,9 @@ func validCommand(arg string) bool {
 }
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})))
 	logger := slog.With("component", "jvmtool")
 
 	if len(os.Args) < 3 {
@@ -61,19 +66,23 @@ func main() {
 	// 	logger.Info("dynamic loading status", "result", status)
 	// }
 
-	out := make(chan string)
+	r, w := io.Pipe()
 	var wg sync.WaitGroup
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for data := range out {
-			fmt.Print(data)
+		scanner := bufio.NewScanner(r)
+		for scanner.Scan() {
+			fmt.Println(scanner.Text())
+		}
+		if err := scanner.Err(); err != nil {
+			logger.Error("error reading from scanner", "error", err)
 		}
 	}()
 
-	exitCode := jvm.Jattach(pid, os.Args[2:], out, logger)
-	close(out)
+	exitCode := jvm.Jattach(pid, os.Args[2:], w, logger)
+	w.Close()
 	wg.Wait()
 
 	os.Exit(exitCode)

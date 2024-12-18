@@ -3,6 +3,7 @@ package jvm
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -95,7 +96,7 @@ func writeCommand(fd int, args []string) error {
 }
 
 // Mirror response from remote JVM to stdout
-func readResponse(fd int, args []string, out chan string, logger *slog.Logger) int {
+func readResponse(fd int, args []string, out *io.PipeWriter, logger *slog.Logger) int {
 	buf := make([]byte, 8192)
 	n, err := syscall.Read(fd, buf)
 	if err != nil {
@@ -140,7 +141,7 @@ func readResponse(fd int, args []string, out chan string, logger *slog.Logger) i
 	logger.Debug("JVM response", "code", result)
 
 	if nlPos < n-1 {
-		out <- string(buf[nlPos+1:])
+		out.Write(buf[nlPos+1:])
 	}
 
 	for {
@@ -148,15 +149,15 @@ func readResponse(fd int, args []string, out chan string, logger *slog.Logger) i
 		if n == 0 || err != nil {
 			break
 		}
-		out <- string(buf[:n])
+		out.Write(buf[:n])
 	}
 
-	out <- fmt.Sprintln()
+	out.Write([]byte(fmt.Sprintln()))
 
 	return result
 }
 
-func jattachHotspot(pid, nspid, attachPid int, args []string, tmpPath string, out chan string, logger *slog.Logger) int {
+func jattachHotspot(pid, nspid, attachPid int, args []string, tmpPath string, out *io.PipeWriter, logger *slog.Logger) int {
 	if !checkSocket(nspid, tmpPath) && !startAttachMechanism(pid, nspid, attachPid, tmpPath) {
 		logger.Error("could not start the attach mechanism")
 		return 1
@@ -169,7 +170,7 @@ func jattachHotspot(pid, nspid, attachPid int, args []string, tmpPath string, ou
 	}
 	defer syscall.Close(fd)
 
-	logger.Info("connected to the JVM")
+	logger.Debug("connected to the JVM")
 
 	if err := writeCommand(fd, args); err != nil {
 		logger.Error("error writing to the JVM socket", "error", err)
@@ -179,7 +180,7 @@ func jattachHotspot(pid, nspid, attachPid int, args []string, tmpPath string, ou
 	return readResponse(fd, args, out, logger)
 }
 
-func Jattach(pid int, argv []string, out chan string, logger *slog.Logger) int {
+func Jattach(pid int, argv []string, out *io.PipeWriter, logger *slog.Logger) int {
 	myUID := syscall.Geteuid()
 	myGID := syscall.Getegid()
 	targetUID := myUID
