@@ -217,5 +217,12 @@ func Jattach(pid int, argv []string, out *io.PipeWriter, logger *slog.Logger) in
 	signal.Ignore(syscall.SIGPIPE)
 
 	res := jattachHotspot(pid, nspid, attachPid, argv, tmpPath, out, logger)
+
+	if (myGID != targetGID && syscall.Setegid(int(myUID)) != nil) ||
+		(myUID != targetUID && syscall.Seteuid(int(myGID)) != nil) {
+		logger.Error("failed to change credentials back to my user")
+		return 1
+	}
+
 	return res
 }
