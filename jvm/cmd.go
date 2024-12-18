@@ -95,7 +95,7 @@ func writeCommand(fd int, args []string) error {
 }
 
 // Mirror response from remote JVM to stdout
-func readResponse(fd int, args []string, out chan []byte, logger *slog.Logger) int {
+func readResponse(fd int, args []string, out chan string, logger *slog.Logger) int {
 	buf := make([]byte, 8192)
 	n, err := syscall.Read(fd, buf)
 	if err != nil {
@@ -137,10 +137,10 @@ func readResponse(fd int, args []string, out chan []byte, logger *slog.Logger) i
 		}
 	}
 
-	logger.Info("JVM response", "code", result)
+	logger.Debug("JVM response", "code", result)
 
 	if nlPos < n-1 {
-		out <- buf[nlPos+1:]
+		out <- string(buf[nlPos+1:])
 	}
 
 	for {
@@ -148,15 +148,15 @@ func readResponse(fd int, args []string, out chan []byte, logger *slog.Logger) i
 		if n == 0 || err != nil {
 			break
 		}
-		out <- buf[:n]
+		out <- string(buf[:n])
 	}
 
-	out <- []byte(fmt.Sprintln())
+	out <- fmt.Sprintln()
 
 	return result
 }
 
-func jattachHotspot(pid, nspid, attachPid int, args []string, tmpPath string, out chan []byte, logger *slog.Logger) int {
+func jattachHotspot(pid, nspid, attachPid int, args []string, tmpPath string, out chan string, logger *slog.Logger) int {
 	if !checkSocket(nspid, tmpPath) && !startAttachMechanism(pid, nspid, attachPid, tmpPath) {
 		logger.Error("could not start the attach mechanism")
 		return 1
@@ -179,7 +179,7 @@ func jattachHotspot(pid, nspid, attachPid int, args []string, tmpPath string, ou
 	return readResponse(fd, args, out, logger)
 }
 
-func Jattach(pid int, argv []string, out chan []byte, logger *slog.Logger) int {
+func Jattach(pid int, argv []string, out chan string, logger *slog.Logger) int {
 	myUID := syscall.Geteuid()
 	myGID := syscall.Getegid()
 	targetUID := myUID

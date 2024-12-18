@@ -61,14 +61,14 @@ func main() {
 	// 	logger.Info("dynamic loading status", "result", status)
 	// }
 
-	out := make(chan []byte)
+	out := make(chan string)
 	var wg sync.WaitGroup
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for data := range out {
-			os.Stdout.Write(data)
+			fmt.Print(data)
 		}
 	}()
 
