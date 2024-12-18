@@ -138,5 +138,15 @@ func Jattach(pid int, argv []string, logger *slog.Logger) (io.ReadCloser, error)
 	// Make write() return EPIPE instead of abnormal process termination
 	signal.Ignore(syscall.SIGPIPE)
 
-	return jattachHotspot(pid, nspid, attachPid, argv, tmpPath, logger)
+	res, err := jattachHotspot(pid, nspid, attachPid, argv, tmpPath, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	if (myGID != targetGID && syscall.Setegid(int(myUID)) != nil) ||
+		(myUID != targetUID && syscall.Seteuid(int(myGID)) != nil) {
+		return nil, errors.New("failed to change credentials back to my user")
+	}
+
+	return res, nil
 }
