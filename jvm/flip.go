@@ -144,7 +144,6 @@ func EnableDynamicAgentLoading(pid int) (LoadStatus, error) {
 			javaProg.DetachFromJavaProgram()
 			return Error, fmt.Errorf("failed to read field addr, error %v", err)
 		}
-		fmt.Printf("fieldAddr %x\n", fieldAddr)
 
 		if bytes[0] == byte(0) {
 			set := []byte{1}
