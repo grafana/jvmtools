@@ -1,14 +1,13 @@
 package jvm
 
 import (
-	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -64,21 +63,12 @@ func startAttachMechanism(pid, nspid, attachPid int, tmpPath string) bool {
 }
 
 // Connect to UNIX domain socket created by JVM for Dynamic Attach
-func connectSocket(pid int, tmpPath string) (int, error) {
-	addr := &syscall.SockaddrUnix{Name: fmt.Sprintf("%s/.java_pid%d", tmpPath, pid)}
-	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
-	if err != nil {
-		return -1, err
-	}
-	if err := syscall.Connect(fd, addr); err != nil {
-		syscall.Close(fd)
-		return -1, err
-	}
-	return fd, nil
+func connectSocket(pid int, tmpPath string) (net.Conn, error) {
+	return net.Dial("unix", fmt.Sprintf("%s/.java_pid%d", tmpPath, pid))
 }
 
 // Send command with arguments to socket
-func writeCommand(fd int, args []string) error {
+func writeCommand(conn net.Conn, args []string) error {
 	request := make([]byte, 0)
 
 	request = append(request, byte('1'))
@@ -91,96 +81,30 @@ func writeCommand(fd int, args []string) error {
 		request = append(request, byte(0))
 	}
 
-	_, err := syscall.Write(fd, request)
+	_, err := conn.Write(request)
 	return err
 }
 
-// Mirror response from remote JVM to stdout
-func readResponse(fd int, args []string, out *io.PipeWriter, logger *slog.Logger) int {
-	buf := make([]byte, 8192)
-	n, err := syscall.Read(fd, buf)
-	if err != nil {
-		logger.Error("error reading response from JVM", "error", err)
-		return 1
-	}
-	if n == 0 {
-		logger.Error("unexpected EOF while reading response from the JVM")
-		return 1
-	}
-
-	buf = buf[:n]
-	nlPos := bytes.IndexByte(buf, '\n')
-	if nlPos < 0 {
-		nlPos = n
-	}
-
-	result, _ := strconv.Atoi(string(buf[:nlPos]))
-
-	if len(args) > 0 && args[0] == "load" {
-		total := n
-		for total < len(buf)-1 {
-			n, err = syscall.Read(fd, buf[total:])
-			if err != nil || n == 0 {
-				break
-			}
-			total += n
-		}
-		buf = buf[:total]
-
-		if result == 0 && len(buf) >= 2 {
-			if strings.HasPrefix(string(buf[2:]), "return code: ") {
-				result, _ = strconv.Atoi(string(buf[15:]))
-			} else if (buf[2] >= '0' && buf[2] <= '9') || buf[2] == '-' {
-				result, _ = strconv.Atoi(string(buf[2:]))
-			} else {
-				result = -1
-			}
-		}
-	}
-
-	logger.Debug("JVM response", "code", result)
-
-	if nlPos < n-1 {
-		out.Write(buf[nlPos+1:])
-	}
-
-	for {
-		n, err := syscall.Read(fd, buf)
-		if n == 0 || err != nil {
-			break
-		}
-		out.Write(buf[:n])
-	}
-
-	out.Write([]byte(fmt.Sprintln()))
-
-	return result
-}
-
-func jattachHotspot(pid, nspid, attachPid int, args []string, tmpPath string, out *io.PipeWriter, logger *slog.Logger) int {
+func jattachHotspot(pid, nspid, attachPid int, args []string, tmpPath string, logger *slog.Logger) (io.ReadCloser, error) {
 	if !checkSocket(nspid, tmpPath) && !startAttachMechanism(pid, nspid, attachPid, tmpPath) {
-		logger.Error("could not start the attach mechanism")
-		return 1
+		return nil, errors.New("could not start the attach mechanism")
 	}
 
-	fd, err := connectSocket(nspid, tmpPath)
+	conn, err := connectSocket(nspid, tmpPath)
 	if err != nil {
-		logger.Error("could not connect to JVM socket", "error", err)
-		return 1
+		return nil, fmt.Errorf("could not connect to JVM socket: %w", err)
 	}
-	defer syscall.Close(fd)
 
 	logger.Debug("connected to the JVM")
 
-	if err := writeCommand(fd, args); err != nil {
-		logger.Error("error writing to the JVM socket", "error", err)
-		return 1
+	if err := writeCommand(conn, args); err != nil {
+		return nil, fmt.Errorf("error writing to the JVM socket: %w", err)
 	}
 
-	return readResponse(fd, args, out, logger)
+	return conn, nil
 }
 
-func Jattach(pid int, argv []string, out *io.PipeWriter, logger *slog.Logger) int {
+func Jattach(pid int, argv []string, logger *slog.Logger) (io.ReadCloser, error) {
 	myUID := syscall.Geteuid()
 	myGID := syscall.Getegid()
 	targetUID := myUID
@@ -188,8 +112,7 @@ func Jattach(pid int, argv []string, out *io.PipeWriter, logger *slog.Logger) in
 	var nspid int
 
 	if util.GetProcessInfo(pid, &targetUID, &targetGID, &nspid) != nil {
-		logger.Error("process not found", "pid", pid)
-		return 1
+		return nil, fmt.Errorf("process not found: %v", pid)
 	}
 
 	// Container support: switch to the target namespaces.
@@ -202,8 +125,7 @@ func Jattach(pid int, argv []string, out *io.PipeWriter, logger *slog.Logger) in
 	// If we are running under root, switch to the required euid/egid automatically.
 	if (myGID != targetGID && syscall.Setegid(int(targetGID)) != nil) ||
 		(myUID != targetUID && syscall.Seteuid(int(targetUID)) != nil) {
-		logger.Error("failed to change credentials to match the target process")
-		return 1
+		return nil, errors.New("failed to change credentials to match the target process")
 	}
 
 	attachPid := pid
@@ -216,13 +138,15 @@ func Jattach(pid int, argv []string, out *io.PipeWriter, logger *slog.Logger) in
 	// Make write() return EPIPE instead of abnormal process termination
 	signal.Ignore(syscall.SIGPIPE)
 
-	res := jattachHotspot(pid, nspid, attachPid, argv, tmpPath, out, logger)
+	res, err := jattachHotspot(pid, nspid, attachPid, argv, tmpPath, logger)
+	if err != nil {
+		return nil, err
+	}
 
 	if (myGID != targetGID && syscall.Setegid(int(myUID)) != nil) ||
 		(myUID != targetUID && syscall.Seteuid(int(myGID)) != nil) {
-		logger.Error("failed to change credentials back to my user")
-		return 1
+		return nil, errors.New("failed to change credentials back to my user")
 	}
 
-	return res
+	return res, nil
 }

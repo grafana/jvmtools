@@ -1,13 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"strconv"
-	"sync"
 
 	"github.com/grafana/jvmtools/jvm"
 )
@@ -66,24 +64,15 @@ func main() {
 	// 	logger.Info("dynamic loading status", "result", status)
 	// }
 
-	r, w := io.Pipe()
-	var wg sync.WaitGroup
+	out, err := jvm.Jattach(pid, os.Args[2:], logger)
+	if err != nil {
+		logger.Error("encountered error while executing jattach", "error", err)
+		os.Exit(1)
+	}
+	defer out.Close()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(r)
-		for scanner.Scan() {
-			fmt.Println(scanner.Text())
-		}
-		if err := scanner.Err(); err != nil {
-			logger.Error("error reading from scanner", "error", err)
-		}
-	}()
+	// use bufio.Scanner for more insights about the output
+	io.Copy(os.Stdout, out)
 
-	exitCode := jvm.Jattach(pid, os.Args[2:], w, logger)
-	w.Close()
-	wg.Wait()
-
-	os.Exit(exitCode)
+	os.Exit(0)
 }
