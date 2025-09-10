@@ -1,3 +1,5 @@
+//go:build linux
+
 package util
 
 import (
@@ -7,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-
-	"golang.org/x/sys/unix"
 )
 
 const maxAttachRetries = 5
@@ -20,7 +20,7 @@ type JavaProgram struct {
 }
 
 func waitPid(pid int) error {
-	ret, err := unix.Wait4(pid, nil, unix.WALL, nil)
+	ret, err := syscall.Wait4(pid, nil, syscall.WALL, nil)
 
 	if err != nil {
 		return err
