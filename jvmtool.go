@@ -83,7 +83,7 @@ func main() {
 		b, err := reader.ReadByte()
 		if err != nil {
 			if err == io.EOF { // hotspot terminates with EOF
-				// Process the last line if it doesn't end with newline
+				os.Stdout.Write(buf.Bytes())
 				break
 			}
 			logger.Error("error reading line", "error", err)
