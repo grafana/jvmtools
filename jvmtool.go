@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"log/slog"
@@ -64,15 +66,42 @@ func main() {
 	// 	logger.Info("dynamic loading status", "result", status)
 	// }
 
-	out, err := jvm.Jattach(pid, os.Args[2:], logger)
+	attacher := jvm.NewJAttacher(logger)
+	attacher.Init()
+
+	out, err := attacher.Attach(pid, os.Args[2:])
 	if err != nil {
 		logger.Error("encountered error while executing jattach", "error", err)
+		attacher.Cleanup()
 		os.Exit(1)
 	}
-	defer out.Close()
 
 	// use bufio.Scanner for more insights about the output
-	io.Copy(os.Stdout, out)
+	reader := bufio.NewReader(out)
+	buf := bytes.Buffer{}
+	for {
+		b, err := reader.ReadByte()
+		if err != nil {
+			if err == io.EOF { // hotspot terminates with EOF
+				// Process the last line if it doesn't end with newline
+				break
+			}
+			logger.Error("error reading line", "error", err)
+			os.Exit(2)
+		}
+
+		buf.WriteByte(b)
+		if b == '\n' {
+			os.Stdout.Write(buf.Bytes())
+			buf.Reset()
+		} else if b == 0 { // j9 terminates with 0
+			os.Stdout.Write(buf.Bytes())
+			break
+		}
+	}
+
+	out.Close()
+	attacher.Cleanup()
 
 	os.Exit(0)
 }
