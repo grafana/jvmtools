@@ -42,10 +42,10 @@ func (j *JAttacher) Cleanup() error {
 		j.j9attacher.detach()
 	}
 	if err := syscall.Seteuid(j.myUID); err != nil {
-		return err
+		j.logger.Error("failed to restore uid", "error", err)
 	}
 	if err := syscall.Setegid(j.myGID); err != nil {
-		return err
+		j.logger.Error("failed to restore gid", "error", err)
 	}
 
 	util.EnterNS(j.myPID, "net")
