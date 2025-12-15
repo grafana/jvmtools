@@ -55,12 +55,7 @@ func (j *JAttacher) Cleanup() error {
 	return nil
 }
 
-// This is exposed since J9 doesn't support all jcmd commands.
-func (j *JAttacher) IsJ9() bool {
-	return j.j9attacher != nil
-}
-
-func (j *JAttacher) Attach(pid int, argv []string) (io.ReadCloser, error) {
+func (j *JAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
 	targetUID := j.myUID
 	targetGID := j.myGID
 	var nspid int
@@ -93,7 +88,10 @@ func (j *JAttacher) Attach(pid int, argv []string) (io.ReadCloser, error) {
 	signal.Ignore(syscall.SIGPIPE)
 
 	if isOpenJ9Process(tmpPath, attachPid) {
-		j9attacher := NewJ9Attacher(j.logger)
+		if ignoreOnJ9 {
+			return nil, nil
+		}
+		j9attacher := newJ9Attacher(j.logger)
 		j.j9attacher = j9attacher
 		return j.j9attacher.jattachOpenJ9(tmpPath, pid, nspid, argv)
 	}

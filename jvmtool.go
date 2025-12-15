@@ -69,7 +69,7 @@ func main() {
 	attacher := jvm.NewJAttacher(logger)
 	attacher.Init()
 
-	out, err := attacher.Attach(pid, os.Args[2:])
+	out, err := attacher.Attach(pid, os.Args[2:], false)
 	if err != nil {
 		logger.Error("encountered error while executing jattach", "error", err)
 		attacher.Cleanup()
