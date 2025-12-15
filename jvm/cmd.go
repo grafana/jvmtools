@@ -91,7 +91,7 @@ func (j *JAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadClos
 		if ignoreOnJ9 {
 			return nil, nil
 		}
-		j9attacher := NewJ9Attacher(j.logger)
+		j9attacher := newJ9Attacher(j.logger)
 		j.j9attacher = j9attacher
 		return j.j9attacher.jattachOpenJ9(tmpPath, pid, nspid, argv)
 	}

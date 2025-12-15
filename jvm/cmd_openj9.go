@@ -23,7 +23,7 @@ type j9Attacher struct {
 	fd         int
 }
 
-func NewJ9Attacher(logger *slog.Logger) *j9Attacher {
+func newJ9Attacher(logger *slog.Logger) *j9Attacher {
 	return &j9Attacher{
 		logger: logger,
 	}
